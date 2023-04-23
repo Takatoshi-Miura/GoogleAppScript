@@ -1,10 +1,4 @@
 /** 設定値 */
-const ACCESS_TOKEN = "LINE botのチャンネルアクセストークン";
-const RESPONSE_URL = "https://api.line.me/v2/bot/message/reply";
-const SPREAD_SHEET_URL = "スプレッドシートのURL";
-const SPREAD_SHEET_ID = "「https://docs.google.com/spreadsheets/d/xxxxx/edit」のxxxxxの部分";
-const SHEET_NAME = "シート名";
-
 const CATEGORY = {
   WORK: "仕事",
   RELATIONSHIP: "人間関係",
@@ -13,6 +7,12 @@ const CATEGORY = {
   YOUTUBE: "YouTube",
   OTHER: "その他"
 };
+
+/** スクリプトプロパティ */
+const LINE_API_ACCESS_TOKEN = PropertiesService.getScriptProperties().getProperty("LINE_API_ACCESS_TOKEN");
+const SPREAD_SHEET_URL = PropertiesService.getScriptProperties().getProperty("SPREAD_SHEET_URL");
+const SPREAD_SHEET_ID = PropertiesService.getScriptProperties().getProperty("SPREAD_SHEET_ID");
+const SHEET_NAME = PropertiesService.getScriptProperties().getProperty("SHEET_NAME");
 
 /**
  * LINEメッセージをGoogleSpreadSheetに送信
@@ -34,7 +34,6 @@ function doPost(e) {
   // LINEで処理結果を送信
   var replyToken = JSON.parse(e.postData.contents).events[0].replyToken;
   responseLINEMesssage(replyToken, resMessage);
-
   return ContentService.createTextOutput(JSON.stringify({'content': 'post ok'})).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -88,14 +87,15 @@ function writeMessageToSpreadSheet(message) {
 
 /**
  * 処理結果をLINEメッセージで返す
- * @param token 返信用のトークン
- * @param message 返信メッセージ
+ * @param token トークン
+ * @param message メッセージ
  */
 function responseLINEMesssage(token, message) {
-  UrlFetchApp.fetch(RESPONSE_URL, {
+  const url = "https://api.line.me/v2/bot/message/reply";
+  UrlFetchApp.fetch(url, {
     'headers': {
       'Content-Type': 'application/json; charset=UTF-8',
-      'Authorization': 'Bearer ' + ACCESS_TOKEN,
+      'Authorization': 'Bearer ' + LINE_API_ACCESS_TOKEN,
     },
     'method': 'post',
     'payload': JSON.stringify({

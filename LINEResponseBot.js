@@ -29,8 +29,8 @@ function doPost(e) {
  * @return 要素
  */
 function getRandomValueFromArray(array) {
-    var randomIndex = Math.floor(Math.random() * array.length);
-    return array[randomIndex];
+  var randomIndex = Math.floor(Math.random() * array.length);
+  return array[randomIndex];
 }
 
 /** 

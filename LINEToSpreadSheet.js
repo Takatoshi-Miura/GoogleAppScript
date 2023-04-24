@@ -9,6 +9,7 @@ const CATEGORY = {
 };
 
 /** スクリプトプロパティ */
+const LINE_USER_ID = PropertiesService.getScriptProperties().getProperty("LINE_USER_ID");
 const LINE_API_ACCESS_TOKEN = PropertiesService.getScriptProperties().getProperty("LINE_API_ACCESS_TOKEN");
 const SPREAD_SHEET_URL = PropertiesService.getScriptProperties().getProperty("SPREAD_SHEET_URL");
 const SPREAD_SHEET_ID = PropertiesService.getScriptProperties().getProperty("SPREAD_SHEET_ID");
@@ -19,21 +20,37 @@ const SHEET_NAME = PropertiesService.getScriptProperties().getProperty("SHEET_NA
  * @param e LINEからの受信データ
  */
 function doPost(e) {
-  // メッセージを取得
-  var userMessage = JSON.parse(e.postData.contents).events[0].message.text;
-  var resMessage = "";
+  const eventData = JSON.parse(e.postData.contents).events[0];
+  const userId = eventData.source.userId;
+  const messageType = eventData.message.type;
+  const userMessage = eventData.message.text;
+  const replyToken = eventData.replyToken;
+  var replyMessage = "";
+
+  // 本人以外のユーザーは拒否
+  if (userId != LINE_USER_ID) {
+    replyMessage = "開発者本人以外は使用できません。";
+    reply(replyToken, replyMessage);
+    return;
+  }
+
+  // テキスト以外は拒否
+  if (messageType != "text") {
+    replyMessage = "テキストで入力してください。";
+    reply(replyToken, replyMessage);
+    return;
+  }
   
   // 入力チェックOKの場合、スプレッドシートへ内容を記録
   if (isCorrectFormat(userMessage)) {
     writeMessageToSpreadSheet(userMessage);
-    resMessage = "記録に成功しました。\n" + SPREAD_SHEET_URL;
+    replyMessage = "記録に成功しました。\n" + SPREAD_SHEET_URL;
   } else {
-    resMessage = "記録に失敗しました。\n「仕事:目標:OOする」のような形式で入力してください。\nカテゴリは「仕事」「人間関係」「メンタル」「金銭」「YouTube」「その他」から記入してください。";
+    replyMessage = "記録に失敗しました。\n「仕事:目標:OOする」のような形式で入力してください。\nカテゴリは「仕事」「人間関係」「メンタル」「金銭」「YouTube」「その他」から記入してください。";
   }
   
   // LINEで処理結果を送信
-  var replyToken = JSON.parse(e.postData.contents).events[0].replyToken;
-  responseLINEMesssage(replyToken, resMessage);
+  reply(replyToken, replyMessage);
   return ContentService.createTextOutput(JSON.stringify({'content': 'post ok'})).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -44,12 +61,12 @@ function doPost(e) {
  */
 function isCorrectFormat(message) {
   // コロンの出現回数が2回以外
-  if (message.match((/:/g)||[]).length != 2) {
+  if (message.indexOf(":") == -1 || message.match((/:/g)||[]).length != 2) {
     return false;
   }
 
   // カテゴリの文字列が異なる
-  var category = message.split(":")[0];
+  const category = message.split(":")[0];
   if (!Object.values(CATEGORY).includes(category)) {
     return false;
   }
@@ -90,7 +107,7 @@ function writeMessageToSpreadSheet(message) {
  * @param token トークン
  * @param message メッセージ
  */
-function responseLINEMesssage(token, message) {
+function reply(token, message) {
   const url = "https://api.line.me/v2/bot/message/reply";
   UrlFetchApp.fetch(url, {
     'headers': {

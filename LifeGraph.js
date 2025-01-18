@@ -1,54 +1,62 @@
+/** 定数 */
+const SHEET_NAME = 'Googleカレンダー集計';
+const START_DATE = new Date('2024/12/17'); // タグ付け運用開始日
+
+const TAG_COLUMN_MAP = {
+  '#work': 2,  // B列
+  '#life': 3,  // C列
+  '#sleep': 4, // D列
+  '#undo': 5,  // E列
+  '#idea': 6,  // F列
+  '#ref': 7,   // G列
+  '#douga': 8, // H列
+  '#skill': 9, // I列
+  '#book': 10, // J列
+  '#code': 11  // K列
+};
+
 /**
- * タグごとの合計時間を集計し、スプシにプロット
+ * 昨日のタグごとの合計時間を集計し、スプシにプロット（定期実行用）
  */
-function aggregateCalendarTags() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Googleカレンダー集計');
-  var calendar = CalendarApp.getDefaultCalendar();
+function plotYesterdayTagTimesToSheet() {
+  var yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  plotTagTimesToSheet(yesterday);
+}
+
+/**
+ * タグ運用開始日から今日までのタグ時間を全てプロット
+ */
+function plotTagTimesForRange() {
+  var startDate = START_DATE;
+  var endDate = new Date();
   
-  // 前日の日時を設定
-  var now = new Date();
-  var yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  var startOfDay = new Date(yesterday.setHours(0, 0, 0, 0)); // 前日の00:00
-  var endOfDay = new Date(yesterday.setHours(23, 59, 59, 999)); // 前日の23:59
+  // 開始日から今日まで順番に処理
+  while (startDate <= endDate) {
+    plotTagTimesToSheet(startDate);
+    startDate.setDate(startDate.getDate() + 1);
+  }
+}
+
+/**
+ * 指定した日付のタグごとの合計時間を集計し、スプシにプロット
+ * 
+ * @param {Date} [targetDate] - 集計対象の日付
+ */
+function plotTagTimesToSheet(targetDate) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+
+  // 指定日のタグごとの時間を取得
+  const tagTimes = calculateTagTimes(targetDate);
   
-  // 前日のイベントを取得
-  var events = calendar.getEvents(startOfDay, endOfDay);
+  // 空いている行を取得
+  var nextRow = sheet.getLastRow() + 1;
   
-  // タグごとの合計時間を保持
-  var tagTimes = {
-    '#work': 0,
-    '#life': 0,
-    '#undo': 0,
-    '#idea': 0,
-    '#ref': 0,
-    '#douga': 0,
-    '#skill': 0,
-    '#book': 0,
-    '#code': 0
-  };
-  
-  // イベントごとにタグをチェックし、タグごとの時間を加算
-  events.forEach(function(event) {
-    var summary = event.getTitle().toLowerCase();
-    var duration = (event.getEndTime() - event.getStartTime()) / (1000 * 60 * 60);
-    
-    for (var tag in tagTimes) {
-      if (summary.indexOf(tag) !== -1) {
-        tagTimes[tag] += duration;
-      }
-    }
-  });
-  
-  // 空いている行を探す
-  var lastRow = sheet.getLastRow();
-  var nextRow = lastRow + 1; // 次にプロットする行
-  
-  // A列に前日の日付をプロット
-  var date = Utilities.formatDate(new Date(startOfDay), Session.getScriptTimeZone(), 'yyyy/MM/dd');
+  // A列に日付をプロット
+  var date = Utilities.formatDate(new Date(targetDate), Session.getScriptTimeZone(), 'yyyy/MM/dd');
   sheet.getRange('A' + nextRow).setValue(date);
   
-  // B列〜I列にタグごとの合計時間をプロット
+  // 以降の列にタグごとの合計時間をプロット
   for (var tag in tagTimes) {
     var column = getColumnForTag(tag);
     if (column) {
@@ -58,22 +66,78 @@ function aggregateCalendarTags() {
 }
 
 /**
+ * 指定された日付のタグごとの合計時間を計算（イベントがない時間は睡眠時間として計算）
+ * 
+ * @param {Date} targetDate - 集計対象日
+ * @returns {Object} タグごとの合計時間
+ */
+function calculateTagTimes(targetDate) {  
+  // タグごとの合計時間を0セット
+  const tagTimes = Object.keys(TAG_COLUMN_MAP).reduce((acc, tag) => {
+    acc[tag] = 0;
+    return acc;
+  }, {});
+
+  // 集計対象日のイベントを全取得
+  const events = getEventsForDate(targetDate);
+  let totalEventHours = 0;
+
+  // イベントごとにタグをチェックし、タグごとの時間を加算
+  events.forEach(function(event) {
+    // 終日のイベントは無視
+    if (event.isAllDayEvent()) return;
+
+    const summary = event.getTitle().toLowerCase();
+    const duration = (event.getEndTime() - event.getStartTime()) / (1000 * 60 * 60);
+    totalEventHours += duration;
+
+    for (const tag in tagTimes) {
+      if (summary.indexOf(tag) !== -1) {
+        tagTimes[tag] += duration;
+      }
+    }
+  });
+
+  // 1日の時間からイベントの合計時間を引き、#sleep に加算
+  const totalDayHours = 24;
+  const sleepHours = totalDayHours - totalEventHours;
+  if ('#sleep' in tagTimes) {
+    tagTimes['#sleep'] += sleepHours;
+  }
+
+  return tagTimes;
+}
+
+/**
+ * 指定した日付のイベントを全取得
+ * 
+ * @param {Date} targetDate - イベントを取得する対象の日付
+ * @returns {CalendarEvent[]} - 指定日のイベントの配列
+ */
+function getEventsForDate(targetDate) {
+  var calendar = CalendarApp.getDefaultCalendar();
+  
+  // 集計対象日の00:00〜23:59を設定
+  var startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+  var endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+  
+  // イベントを取得
+  return calendar.getEvents(startOfDay, endOfDay);
+}
+
+/**
  * タグに対応する列番号を取得
  */
+// 列番号を取得する関数
 function getColumnForTag(tag) {
-  switch(tag) {
-    case '#work': return 2; // B列
-    case '#life': return 3;
-    case '#undo': return 4;
-    case '#idea': return 5;
-    case '#ref': return 6;
-    case '#douga': return 7;
-    case '#skill': return 8;
-    case '#book': return 9;
-    case '#code': return 10;
-    default: return null;
-  }
+  return TAG_COLUMN_MAP[tag] || null;
 }
+
+
+
+
+
+/** 以降は遊び */
 
 /**
  * Googleカレンダーに登録されている予定の合計時間を取得

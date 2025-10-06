@@ -1,5 +1,6 @@
 /** 定数 */
 const SHEET_NAME = 'Googleカレンダー集計';
+const GRAPH_SHEET_NAME = 'Googleカレンダー集計(円グラフ用)';
 const START_DATE = new Date('2024/12/17'); // タグ付け運用開始日
 
 const TAG_COLUMN_MAP = {
@@ -12,7 +13,23 @@ const TAG_COLUMN_MAP = {
   '#douga': 8, // H列
   '#skill': 9, // I列
   '#book': 10, // J列
-  '#code': 11  // K列
+  '#code': 11, // K列
+  '#chi': 12   // L列
+};
+
+// 円グラフ用カテゴリ
+const TAG_CATEGORY_MAP = {
+  '#work': '仕事',
+  '#life': '生活',
+  '#sleep': '睡眠',
+  '#undo': '運動',
+  '#idea': '思考整理',
+  '#ref': 'リフレッシュ',
+  '#douga': 'YouTube活動',
+  '#skill': '自己研鑽',
+  '#book': '読書',
+  '#code': 'プログラミング',
+  '#chi': 'ちーちゃん'
 };
 
 /**
@@ -22,20 +39,7 @@ function plotYesterdayTagTimesToSheet() {
   var yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   plotTagTimesToSheet(yesterday);
-}
-
-/**
- * タグ運用開始日から今日までのタグ時間を全てプロット
- */
-function plotTagTimesForRange() {
-  var startDate = START_DATE;
-  var endDate = new Date();
-  
-  // 開始日から今日まで順番に処理
-  while (startDate <= endDate) {
-    plotTagTimesToSheet(startDate);
-    startDate.setDate(startDate.getDate() + 1);
-  }
+  plotTagTimesToGraphSheet(yesterday);
 }
 
 /**
@@ -62,6 +66,38 @@ function plotTagTimesToSheet(targetDate) {
     if (column) {
       sheet.getRange(nextRow, column).setValue(tagTimes[tag]);
     }
+  }
+}
+
+/**
+ * 指定した日付のタグごとの合計時間を集計し、円グラフ用シートにプロット
+ * 
+ * @param {Date} [targetDate] - 集計対象の日付
+ */
+function plotTagTimesToGraphSheet(targetDate) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let graphSheet = ss.getSheetByName(GRAPH_SHEET_NAME);
+  
+  // 指定日のタグごとの時間を取得
+  const tagTimes = calculateTagTimes(targetDate);
+  
+  // 日付をフォーマット
+  const formattedDate = Utilities.formatDate(new Date(targetDate), Session.getScriptTimeZone(), 'yyyy/MM/dd');
+  
+  // 新しいデータを準備
+  const newData = [];
+  for (const tag in TAG_CATEGORY_MAP) {
+    const categoryName = TAG_CATEGORY_MAP[tag];
+    const hours = tagTimes[tag] || 0;
+    
+    newData.push([formattedDate, categoryName, hours]);
+  }
+  
+  // データが存在する場合のみ追加
+  if (newData.length > 0) {
+    // 空いている行を取得
+    var nextRow = graphSheet.getLastRow() + 1;
+    graphSheet.getRange(nextRow, 1, newData.length, 3).setValues(newData);
   }
 }
 
@@ -131,6 +167,64 @@ function getEventsForDate(targetDate) {
 // 列番号を取得する関数
 function getColumnForTag(tag) {
   return TAG_COLUMN_MAP[tag] || null;
+}
+
+
+/**
+ * タグ運用開始日から今日までのタグ時間を全てプロット
+ */
+function plotTagTimesForRange() {
+  var startDate = START_DATE;
+  var endDate = new Date();
+  
+  // 開始日から今日まで順番に処理
+  while (startDate <= endDate) {
+    plotTagTimesToSheet(startDate);
+    startDate.setDate(startDate.getDate() + 1);
+  }
+}
+
+/**
+ * 「Googleカレンダー集計」シートを縦持ちに変換
+ */
+function convertToVertical() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName(SHEET_NAME);
+  let verticalSheet = ss.getSheetByName(GRAPH_SHEET_NAME);
+  verticalSheet.clear();
+  
+  // ヘッダー設定
+  verticalSheet.getRange(1, 1, 1, 3).setValues([['日付', 'カテゴリ', '時間']]);
+  
+  const data = sourceSheet.getDataRange().getValues();
+  const categories = [
+    '仕事', '生活', '睡眠', '運動', '思考整理', 
+    'リフレッシュ', 'YouTube活動', '自己研鑽', 
+    '読書', 'プログラミング', 'ちーちゃん'
+  ];
+  
+  let outputRow = 2;
+  
+  // データ変換ループ
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const date = row[0];
+    
+    if (!date) continue; // 空行をスキップ
+    
+    // 各カテゴリのデータを縦に展開
+    for (let j = 0; j < categories.length; j++) {
+      const category = categories[j];
+      const hours = parseFloat(row[j + 1]) || 0;
+      
+      verticalSheet.getRange(outputRow, 1, 1, 3).setValues([[
+        date, category, hours
+      ]]);
+      outputRow++;
+    }
+  }
+  
+  console.log('縦持ち変換完了！');
 }
 
 

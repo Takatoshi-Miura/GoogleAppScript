@@ -14,7 +14,8 @@ const TAG_COLUMN_MAP = {
   '#skill': 9, // I列
   '#book': 10, // J列
   '#code': 11, // K列
-  '#chi': 12   // L列
+  '#chi': 12,  // L列
+  '#github': 13 // M列
 };
 
 // 円グラフ用カテゴリ
@@ -40,6 +41,7 @@ function plotYesterdayTagTimesToSheet() {
   yesterday.setDate(yesterday.getDate() - 1);
   plotTagTimesToSheet(yesterday);
   plotTagTimesToGraphSheet(yesterday);
+  plotGitHubChangesToSheet(yesterday);
 }
 
 /**
@@ -70,8 +72,25 @@ function plotTagTimesToSheet(targetDate) {
 }
 
 /**
+ * 指定した日付のGitHub変更行数をスプシにプロット
+ *
+ * @param {Date} [targetDate] - 集計対象の日付
+ */
+function plotGitHubChangesToSheet(targetDate) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+
+  // GitHub変更行数を取得
+  const githubChanges = getYesterdayGitHubCodeChanges(targetDate);
+
+  // 最終行のM列に書き込み
+  var lastRow = sheet.getLastRow();
+  var githubColumn = TAG_COLUMN_MAP['#github'];
+  sheet.getRange(lastRow, githubColumn).setValue(githubChanges);
+}
+
+/**
  * 指定した日付のタグごとの合計時間を集計し、円グラフ用シートにプロット
- * 
+ *
  * @param {Date} [targetDate] - 集計対象の日付
  */
 function plotTagTimesToGraphSheet(targetDate) {
@@ -146,19 +165,114 @@ function calculateTagTimes(targetDate) {
 
 /**
  * 指定した日付のイベントを全取得
- * 
+ *
  * @param {Date} targetDate - イベントを取得する対象の日付
  * @returns {CalendarEvent[]} - 指定日のイベントの配列
  */
 function getEventsForDate(targetDate) {
   var calendar = CalendarApp.getDefaultCalendar();
-  
+
   // 集計対象日の00:00〜23:59を設定
   var startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
   var endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
-  
+
   // イベントを取得
   return calendar.getEvents(startOfDay, endOfDay);
+}
+
+/**
+ * 指定した日付のGitHubコード変更行数を取得
+ *
+ * @param {Date} targetDate - 集計対象日
+ * @returns {number} 変更行数（additions + deletions）
+ */
+function getYesterdayGitHubCodeChanges(targetDate) {
+  // Script PropertiesからGitHub Personal Access Tokenを取得
+  const token = PropertiesService.getScriptProperties().getProperty('GITHUB_ACCESS_TOKEN');
+  if (!token) {
+    Logger.log('GitHub Access Token が設定されていません');
+    return 0;
+  }
+
+  // API呼び出し用ヘッダー
+  const headers = {
+    'Authorization': 'token ' + token,
+    'Accept': 'application/vnd.github.v3+json'
+  };
+
+  // 対象日の開始・終了時刻を設定
+  const startOfDay = new Date(targetDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(targetDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  // ISO 8601形式に変換
+  const since = startOfDay.toISOString();
+  const until = endOfDay.toISOString();
+
+  let totalChanges = 0;
+
+  try {
+    // 自分の全リポジトリを取得
+    const reposUrl = 'https://api.github.com/user/repos?per_page=100&affiliation=owner';
+    const reposResponse = UrlFetchApp.fetch(reposUrl, {
+      headers: headers,
+      muteHttpExceptions: true
+    });
+
+    if (reposResponse.getResponseCode() !== 200) {
+      Logger.log('リポジトリ取得エラー: ' + reposResponse.getContentText());
+      return 0;
+    }
+
+    const repos = JSON.parse(reposResponse.getContentText());
+
+    // 各リポジトリのコミットを確認
+    repos.forEach(function(repo) {
+      const commitsUrl = 'https://api.github.com/repos/' + repo.full_name + '/commits?since=' + since + '&until=' + until;
+
+      try {
+        const commitsResponse = UrlFetchApp.fetch(commitsUrl, {
+          headers: headers,
+          muteHttpExceptions: true
+        });
+
+        if (commitsResponse.getResponseCode() === 200) {
+          const commits = JSON.parse(commitsResponse.getContentText());
+
+          // 各コミットの統計情報を取得
+          commits.forEach(function(commit) {
+            const commitUrl = 'https://api.github.com/repos/' + repo.full_name + '/commits/' + commit.sha;
+
+            try {
+              const commitDetailResponse = UrlFetchApp.fetch(commitUrl, {
+                headers: headers,
+                muteHttpExceptions: true
+              });
+
+              if (commitDetailResponse.getResponseCode() === 200) {
+                const commitDetail = JSON.parse(commitDetailResponse.getContentText());
+
+                if (commitDetail.stats) {
+                  totalChanges += (commitDetail.stats.additions || 0) + (commitDetail.stats.deletions || 0);
+                }
+              }
+            } catch (e) {
+              Logger.log('コミット詳細取得エラー: ' + e.message);
+            }
+          });
+        }
+      } catch (e) {
+        Logger.log('コミット一覧取得エラー (' + repo.full_name + '): ' + e.message);
+      }
+    });
+
+  } catch (e) {
+    Logger.log('GitHub API呼び出しエラー: ' + e.message);
+    return 0;
+  }
+
+  return totalChanges;
 }
 
 /**
@@ -176,12 +290,54 @@ function getColumnForTag(tag) {
 function plotTagTimesForRange() {
   var startDate = START_DATE;
   var endDate = new Date();
-  
+
   // 開始日から今日まで順番に処理
   while (startDate <= endDate) {
     plotTagTimesToSheet(startDate);
     startDate.setDate(startDate.getDate() + 1);
   }
+}
+
+/**
+ * タグ運用開始日から現在までのGitHub変更行数を全てプロット
+ */
+function plotGitHubChangesForRange() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  var data = sheet.getDataRange().getValues();
+  var githubColumn = TAG_COLUMN_MAP['#github'];
+
+  var startDate = new Date(START_DATE);
+  var endDate = new Date();
+  endDate.setDate(endDate.getDate() - 1); // 昨日まで
+
+  // 開始日から昨日まで順番に処理
+  var currentDate = new Date(startDate);
+  while (currentDate <= endDate) {
+    var formattedDate = Utilities.formatDate(currentDate, Session.getScriptTimeZone(), 'yyyy/MM/dd');
+
+    Logger.log('処理中: ' + formattedDate);
+
+    // シートから該当日付の行を探す
+    for (var i = 1; i < data.length; i++) { // i=0はヘッダーなのでスキップ
+      var cellDate = data[i][0];
+
+      if (cellDate) {
+        var cellDateFormatted = Utilities.formatDate(new Date(cellDate), Session.getScriptTimeZone(), 'yyyy/MM/dd');
+
+        if (cellDateFormatted === formattedDate) {
+          // 該当行を見つけた場合、GitHub変更行数を取得して書き込み
+          var githubChanges = getYesterdayGitHubCodeChanges(currentDate);
+          sheet.getRange(i + 1, githubColumn).setValue(githubChanges);
+          Logger.log(formattedDate + ': ' + githubChanges + '行');
+          break;
+        }
+      }
+    }
+
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  Logger.log('完了');
 }
 
 /**

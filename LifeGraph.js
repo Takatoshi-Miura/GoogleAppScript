@@ -15,7 +15,8 @@ const TAG_COLUMN_MAP = {
   '#book': 10, // J列
   '#code': 11, // K列
   '#chi': 12,  // L列
-  '#github': 13 // M列
+  '#github': 13, // M列
+  '#performance': 14 // N列
 };
 
 // 円グラフ用カテゴリ
@@ -42,6 +43,7 @@ function plotYesterdayTagTimesToSheet() {
   plotTagTimesToSheet(yesterday);
   plotTagTimesToGraphSheet(yesterday);
   plotGitHubChangesToSheet(yesterday);
+  plotPerformancePointToSheet(yesterday);
 }
 
 /**
@@ -86,6 +88,20 @@ function plotGitHubChangesToSheet(targetDate) {
   var lastRow = sheet.getLastRow();
   var githubColumn = TAG_COLUMN_MAP['#github'];
   sheet.getRange(lastRow, githubColumn).setValue(githubChanges);
+}
+
+/**
+ * 指定した日付のパフォーマンスポイントをスプシにプロット
+ *
+ * @param {Date} [targetDate] - 集計対象の日付
+ */
+function plotPerformancePointToSheet(targetDate) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+
+  // 最終行のN列にパフォーマンスポイント(固定値3)を書き込み
+  var lastRow = sheet.getLastRow();
+  var performanceColumn = TAG_COLUMN_MAP['#performance'];
+  sheet.getRange(lastRow, performanceColumn).setValue(3);
 }
 
 /**

@@ -14,10 +14,43 @@ const LINE_GROUP_ID = PropertiesService.getScriptProperties().getProperty("LINE_
 const SHIFT_SPREADSHEET_ID = "1WF58VNM0lGfN-YKqR2ySXU_EKQQCpyrV4da8WiVtoBo"; // シフト予定を保存するスプレッドシートID
 const SHIFT_SHEET_NAME = "シフト予定";
 
+/** ゴミ収集スケジュール定義 */
+const GARBAGE_SCHEDULE = {
+  // 曜日: 0=日曜, 1=月曜, 2=火曜, 3=水曜, 4=木曜, 5=金曜, 6=土曜
+  1: { // 月曜日
+    all: "燃える"
+  },
+  4: { // 木曜日
+    all: "燃える"
+  },
+  2: { // 火曜日
+    1: "ダンボール",
+    2: "有害",
+    3: "ダンボール"
+  },
+  3: { // 水曜日
+    1: "ペットボトル",
+    2: "缶",
+    3: "ペットボトル",
+    4: "缶"
+  },
+  5: { // 金曜日
+    1: "ビン",
+    2: "燃やせない"
+  }
+};
+
+/** ゴミ収集リマインダーメッセージ */
+const GARBAGE_REMINDER_MESSAGES = {
+  withCollection: "あしたは{type}ゴミのひ！ちゃんとすてるもんね！",
+  noCollection: "あしたはゴミかいしゅうないね。サボりだね。"
+};
+
 /**
  * GASトリガーで毎日実行するリマインダー
  * - お薬リマインダー
  * - シフトの前日リマインダー
+ * - ゴミ収集リマインダー
  */
 function runDailyReminders() {
   Logger.log("=== デイリーリマインダー実行開始 ===");
@@ -27,6 +60,9 @@ function runDailyReminders() {
 
   // シフトの前日リマインダーを送信
   checkAndSendShiftReminder();
+
+  // ゴミ収集リマインダーを送信
+  checkAndSendGarbageReminder();
 
   Logger.log("=== デイリーリマインダー実行完了 ===");
 }
@@ -301,4 +337,70 @@ function saveShiftsToSheet(shifts) {
   });
 
   Logger.log(`${shifts.length}件のシフトを保存しました`);
+}
+
+/**
+ * 翌日のゴミ種別を取得
+ *
+ * @return {string|null} ゴミ種別 (収集がない場合はnull)
+ */
+function getTomorrowGarbageType() {
+  // 翌日の日付を取得
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // 翌日の曜日を取得 (0=日曜, 1=月曜, ..., 6=土曜)
+  const dayOfWeek = tomorrow.getDay();
+
+  // その月の1日を取得
+  const firstDay = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), 1);
+
+  // 月初からの経過日数を計算
+  const daysSinceFirst = Math.floor((tomorrow - firstDay) / (1000 * 60 * 60 * 24));
+
+  // 週番号を計算 (1日を含む週を第1週とする)
+  const weekNumber = Math.floor(daysSinceFirst / 7) + 1;
+
+  // ゴミ収集スケジュールから該当する曜日を取得
+  const daySchedule = GARBAGE_SCHEDULE[dayOfWeek];
+
+  // 該当する曜日がスケジュールにない場合はnull
+  if (!daySchedule) {
+    return null;
+  }
+
+  // "all"キーがあれば週番号に関わらずその種別を返す
+  if (daySchedule.all) {
+    return daySchedule.all;
+  }
+
+  // 週番号をキーにして種別を取得
+  const garbageType = daySchedule[weekNumber];
+
+  // 該当する週番号がない場合はnull
+  return garbageType || null;
+}
+
+/**
+ * ゴミ収集リマインダー送信
+ * 翌日のゴミ収集があればLINEにリマインドメッセージを送信
+ */
+function checkAndSendGarbageReminder() {
+  // 翌日のゴミ種別を取得
+  const garbageType = getTomorrowGarbageType();
+
+  // メッセージを生成
+  let message = "";
+  if (garbageType) {
+    // 収集がある場合: テンプレートの{type}をゴミ種別で置換
+    message = GARBAGE_REMINDER_MESSAGES.withCollection.replace("{type}", garbageType);
+  } else {
+    // 収集がない場合
+    message = GARBAGE_REMINDER_MESSAGES.noCollection;
+  }
+
+  // メッセージを送信
+  sendLINEBotMessage(message);
+
+  Logger.log(`ゴミリマインダー送信: ${message}`);
 }

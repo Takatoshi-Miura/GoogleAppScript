@@ -16,7 +16,8 @@ const TAG_COLUMN_MAP = {
   '#code': 11, // K列
   '#chi': 12,  // L列
   '#github': 13, // M列
-  '#performance': 14 // N列
+  '#steps': 14, // N列
+  '#performance': 15 // O列
 };
 
 // 円グラフ用カテゴリ
@@ -44,6 +45,7 @@ function plotYesterdayTagTimesToSheet() {
   plotTagTimesToGraphSheet(yesterday);
   plotGitHubChangesToSheet(yesterday);
   plotPerformancePointToSheet(yesterday);
+  // ※ 歩数はショートカットからPOSTで受け取るため、ここでは書かない
 }
 
 /**
@@ -354,6 +356,67 @@ function plotGitHubChangesForRange() {
   }
 
   Logger.log('完了');
+}
+
+/**
+ * iOSショートカットから歩数データを受け取りスプシに書き込む
+ * ショートカットからPOST: { "date": "2026/03/25", "steps": 8432 }
+ */
+function doPost(e) {
+  try {
+    const params = JSON.parse(e.postData.contents);
+    const date = params.date;   // "2026/03/25"
+    const steps = params.steps; // 8432
+
+    if (!date || steps === undefined) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ status: 'error', message: 'date と steps が必要です' })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    plotStepsToSheet(date, steps);
+
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: 'ok', date: date, steps: steps })
+    ).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    Logger.log('doPost エラー: ' + err.message);
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: 'error', message: err.message })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
+ * 指定日の歩数をスプシのO列に書き込む
+ * 既存の行があればそこに上書き、なければ新規行に追記
+ *
+ * @param {string} dateStr - "yyyy/MM/dd" 形式の日付文字列
+ * @param {number} steps   - 歩数
+ */
+function plotStepsToSheet(dateStr, steps) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  var stepsColumn = TAG_COLUMN_MAP['#steps'];
+  var data = sheet.getDataRange().getValues();
+
+  // 既存行を検索して上書き
+  for (var i = 1; i < data.length; i++) {
+    var cellDate = data[i][0];
+    if (!cellDate) continue;
+    var cellDateStr = Utilities.formatDate(new Date(cellDate), Session.getScriptTimeZone(), 'yyyy/MM/dd');
+    if (cellDateStr === dateStr) {
+      sheet.getRange(i + 1, stepsColumn).setValue(steps);
+      Logger.log('歩数更新: ' + dateStr + ' -> ' + steps + ' 歩');
+      return;
+    }
+  }
+
+  // 既存行がない場合は新規追記（GASの定期実行より先にショートカットが走った場合）
+  var nextRow = sheet.getLastRow() + 1;
+  sheet.getRange(nextRow, 1).setValue(dateStr);
+  sheet.getRange(nextRow, stepsColumn).setValue(steps);
+  Logger.log('歩数新規追加: ' + dateStr + ' -> ' + steps + ' 歩');
 }
 
 /**

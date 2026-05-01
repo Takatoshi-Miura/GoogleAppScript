@@ -55,14 +55,12 @@ const GARBAGE_REMINDER_MESSAGES = {
 function runDailyReminders() {
   Logger.log("=== デイリーリマインダー実行開始 ===");
 
-  // お薬リマインダーを送信
-  sendLINEBotMessage("お薬のむのむの時間！");
-
-  // シフトの前日リマインダーを送信
-  checkAndSendShiftReminder();
-
-  // ゴミ収集リマインダーを送信
-  checkAndSendGarbageReminder();
+  const parts = [
+    "お薬のむのむの時間！",
+    buildShiftReminderMessage(),
+    buildGarbageReminderMessage()
+  ];
+  sendLINEBotMessage(parts.join("\n\n"));
 
   Logger.log("=== デイリーリマインダー実行完了 ===");
 }
@@ -212,26 +210,22 @@ function replyLINEMessage(replyMessage, replyToken) {
 }
 
 /**
- * 前日リマインダー送信
- * 翌日のシフトがあればLINEにリマインドメッセージを送信
+ * 翌日シフトのリマインダーメッセージを生成
+ *
+ * @return {string} シフトリマインダーメッセージ
  */
-function checkAndSendShiftReminder() {
-  // 翌日のシフトを取得
+function buildShiftReminderMessage() {
   const shifts = getTomorrowShifts();
 
-  // メッセージを生成
-  let message = "";
   if (shifts.length === 0) {
-    message = "あしたはバイトないね！あそぶもんね！";
-  } else {
-    message = "あしたはバイトのひ！めんどくちゃいけど、がんばるもんね！\n";
-    shifts.forEach(shift => {
-      message += `${shift.date} ${shift.startTime} ~ ${shift.endTime}\n`;
-    });
+    return "あしたはバイトないね！あそぶもんね！";
   }
 
-  // メッセージを送信
-  sendLINEBotMessage(message.trim());
+  let message = "あしたはバイトのひ！めんどくちゃいけど、がんばるもんね！\n";
+  shifts.forEach(shift => {
+    message += `${shift.date} ${shift.startTime} ~ ${shift.endTime}\n`;
+  });
+  return message.trim();
 }
 
 /**
@@ -382,25 +376,17 @@ function getTomorrowGarbageType() {
 }
 
 /**
- * ゴミ収集リマインダー送信
- * 翌日のゴミ収集があればLINEにリマインドメッセージを送信
+ * 翌日ゴミ収集のリマインダーメッセージを生成
+ *
+ * @return {string} ゴミ収集リマインダーメッセージ
  */
-function checkAndSendGarbageReminder() {
-  // 翌日のゴミ種別を取得
+function buildGarbageReminderMessage() {
   const garbageType = getTomorrowGarbageType();
 
-  // メッセージを生成
-  let message = "";
-  if (garbageType) {
-    // 収集がある場合: テンプレートの{type}をゴミ種別で置換
-    message = GARBAGE_REMINDER_MESSAGES.withCollection.replace("{type}", garbageType);
-  } else {
-    // 収集がない場合
-    message = GARBAGE_REMINDER_MESSAGES.noCollection;
-  }
+  const message = garbageType
+    ? GARBAGE_REMINDER_MESSAGES.withCollection.replace("{type}", garbageType)
+    : GARBAGE_REMINDER_MESSAGES.noCollection;
 
-  // メッセージを送信
-  sendLINEBotMessage(message);
-
-  Logger.log(`ゴミリマインダー送信: ${message}`);
+  Logger.log(`ゴミリマインダーメッセージ: ${message}`);
+  return message;
 }
